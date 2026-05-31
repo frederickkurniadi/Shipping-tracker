@@ -31,8 +31,10 @@ function doPost(e) {
     const sheet = getSheet_();
 
     if (payload.action === 'upsert') {
-      const result = upsertShipments_(sheet, payload.shipments || []);
-      return json_({ ok: true, ...result });
+      const upsertResult = upsertShipments_(sheet, payload.shipments || []);
+      // After every upsert: dedupe by tracking # then re-sort the whole sheet.
+      const cleanupResult = sortAndDedupe_(sheet);
+      return json_({ ok: true, ...upsertResult, ...cleanupResult });
     }
     if (payload.action === 'list') {
       return json_({ ok: true, shipments: listShipments_(sheet) });
@@ -149,6 +151,70 @@ function upsertShipments_(sheet, shipments) {
     skipped: skipped.length,
     skippedDetail: skipped,
   };
+}
+
+/**
+ * Dedupe by Tracking # (keep the row with the newest Last Updated), then sort:
+ *   non-delivered statuses first, then by Date descending within each status group.
+ * Rows without a Tracking # are preserved (manual rows) and sorted alongside the rest.
+ */
+function sortAndDedupe_(sheet) {
+  const lastRow = sheet.getLastRow();
+  if (lastRow < 3) return { removed: 0 }; // 0 or 1 data row — nothing to do.
+
+  const rows = sheet.getRange(2, 1, lastRow - 1, HEADERS.length).getValues();
+
+  // 1. Dedupe by tracking number — keep the row with the latest Last Updated.
+  const byTracking = {};
+  const noTracking = [];
+  rows.forEach(r => {
+    const tracking = String(r[3] || '').trim();
+    if (!tracking) {
+      noTracking.push(r);
+      return;
+    }
+    const ts = r[8] instanceof Date ? r[8].getTime() : (r[8] ? new Date(r[8]).getTime() : 0);
+    if (!byTracking[tracking] || ts > byTracking[tracking].ts) {
+      byTracking[tracking] = { row: r, ts };
+    }
+  });
+
+  const cleaned = Object.values(byTracking).map(o => o.row).concat(noTracking);
+  const removed = rows.length - cleaned.length;
+
+  // 2. Sort: non-delivered first, then by Date desc within each group.
+  //    Lower number = higher in the sheet.
+  const STATUS_ORDER = {
+    'Out for Delivery': 0,
+    'Delayed':          1,
+    'In Transit':       2,
+    'Shipped':          3,
+    'Ordered':          4,
+    'Delivered':        5,
+    'Returned':         6,
+  };
+  const statusRank = s => (s in STATUS_ORDER ? STATUS_ORDER[s] : 99);
+  const dateMs = v => {
+    if (!v) return 0;
+    if (v instanceof Date) return v.getTime();
+    const d = new Date(v);
+    return isNaN(d) ? 0 : d.getTime();
+  };
+
+  cleaned.sort((a, b) => {
+    const sa = statusRank(a[6]);
+    const sb = statusRank(b[6]);
+    if (sa !== sb) return sa - sb;
+    return dateMs(b[0]) - dateMs(a[0]); // newest first within the same status
+  });
+
+  // 3. Rewrite the data range in place. Clear the old extent so freed rows blank out.
+  sheet.getRange(2, 1, rows.length, HEADERS.length).clearContent();
+  if (cleaned.length > 0) {
+    sheet.getRange(2, 1, cleaned.length, HEADERS.length).setValues(cleaned);
+  }
+
+  return { removed };
 }
 
 function json_(obj) {

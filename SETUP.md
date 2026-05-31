@@ -67,12 +67,21 @@ depending on your shopping habits. Subsequent runs will be small (typically
 
 ## How it stays correct
 
-- **Dedup**: every shipping email gets labeled `Tracked/Processed` after a
-  successful sheet write. The Gmail search filter excludes labeled threads, so
-  the routine never re-reads the same email.
+- **Dedup at the email layer**: every shipping email gets labeled
+  `Tracked/Processed` after a successful sheet write. The Gmail search filter
+  excludes labeled threads, so the routine never re-reads the same email.
+- **Dedup at the row layer**: after every upsert, the Apps Script scans the
+  sheet, groups by `Tracking #`, and keeps only the row with the newest
+  `Last Updated` for each tracking number. Duplicates caused by manual edits,
+  retried POSTs, or merchants resending the same tracking under a slightly
+  different format get collapsed automatically.
 - **Updates**: the Apps Script upserts by `Tracking #`. When a "shipped"
   email and a later "out for delivery" email both have the same tracking
   number, the second one updates the existing row instead of inserting.
+- **Sort**: after every upsert the sheet is re-sorted so active shipments
+  bubble to the top — `Out for Delivery → Delayed → In Transit → Shipped →
+  Ordered → Delivered → Returned`. Within each status group, newest `Date`
+  first.
 - **Lifecycle**: rows marked `Delivered` are frozen 7 days after their last
   update, so a stale "delivered" email won't keep re-flipping a row.
 - **Date stability**: the `Date` column is set once (the shipped date) and

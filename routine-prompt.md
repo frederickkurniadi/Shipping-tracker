@@ -68,8 +68,15 @@ read the sheet first.
 
 Expected response:
 ```
-{ "ok": true, "inserted": N, "updated": M, "skipped": K, ... }
+{ "ok": true, "inserted": N, "updated": M, "skipped": K, "removed": L, ... }
 ```
+
+`removed` is the number of duplicate rows the Apps Script cleaned up after the
+upsert (same tracking # appearing on multiple rows — script keeps the row with
+the newest `Last Updated` and deletes the rest). The script also re-sorts the
+whole sheet on every run: non-delivered statuses on top
+(Out for Delivery → Delayed → In Transit → Shipped → Ordered), then
+Delivered → Returned. Within each status group, newest Date first.
 
 If `ok: false` or the request fails, **stop** — do not label the Gmail threads.
 Output the error and exit so the run is retried tomorrow.
@@ -84,7 +91,7 @@ to every thread you extracted from. Create the label if it does not exist.
 Output exactly one line:
 
 ```
-Shipping tracker: N new, M updated, K skipped, L threads labeled.
+Shipping tracker: N new, M updated, K skipped, L duplicates removed, P threads labeled.
 ```
 
 If anything errored, output the error on a second line.
