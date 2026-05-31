@@ -193,7 +193,10 @@ function sortAndDedupe_(sheet) {
     'Delivered':        5,
     'Returned':         6,
   };
-  const statusRank = s => (s in STATUS_ORDER ? STATUS_ORDER[s] : 99);
+  const statusRank = s => {
+    const key = String(s || '').trim();
+    return key in STATUS_ORDER ? STATUS_ORDER[key] : 99;
+  };
   const dateMs = v => {
     if (!v) return 0;
     if (v instanceof Date) return v.getTime();
@@ -215,6 +218,19 @@ function sortAndDedupe_(sheet) {
   }
 
   return { removed };
+}
+
+/**
+ * Run from the Apps Script editor (select 'manualCleanup' in the function
+ * dropdown → click Run) to immediately dedupe and re-sort the sheet without
+ * waiting for the next routine run. Useful right after deploying a new
+ * version to fix any backlog the old script left behind.
+ */
+function manualCleanup() {
+  const sheet = getSheet_();
+  const result = sortAndDedupe_(sheet);
+  Logger.log('Manual cleanup complete: ' + JSON.stringify(result));
+  return result;
 }
 
 function json_(obj) {
